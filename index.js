@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 
 import fetch from "node-fetch";
-import unzipper from "unzipper";
 import { program } from "commander";
 import path from "path";
 import fs from "fs";
 import { execSync } from "child_process";
-import chalk from "chalk"; // Import chalk
+import chalk from "chalk";
+import AdmZip from "adm-zip";
+import os from "os";
 
 const GITHUB_ZIP_URL =
   "https://github.com/EmilGramDK/angular-template/archive/refs/heads/main.zip";
@@ -15,7 +16,6 @@ program
   .version("1.0.0")
   .argument("<project-name>", "Name of the new Angular project")
   .action(async (projectName) => {
-    // Check if project name is entered
     if (!projectName) {
       console.error(chalk.red("Error: No project name entered."));
       console.error(
@@ -26,7 +26,6 @@ program
 
     const projectPath = path.join(process.cwd(), projectName);
 
-    // Check if the directory already exists
     if (fs.existsSync(projectPath)) {
       console.error(
         chalk.red(`Error: Directory "${projectName}" already exists.`)
@@ -34,10 +33,14 @@ program
       process.exit(1);
     }
 
-    // Create the project directory
     fs.mkdirSync(projectPath);
 
-    // Download the repository as a ZIP file
+    // Create a temporary path for the ZIP file
+    const tempZipPath = path.join(
+      os.tmpdir(),
+      `angular-template-${Date.now()}.zip`
+    );
+
     console.log(chalk.blue(`Downloading template from ${GITHUB_ZIP_URL}...`));
     const response = await fetch(GITHUB_ZIP_URL);
     if (!response.ok) {
@@ -45,35 +48,29 @@ program
       process.exit(1);
     }
 
-    // Unzip the downloaded file
+    // Write the downloaded ZIP file to the temp directory
+    const fileStream = fs.createWriteStream(tempZipPath);
+    await new Promise((resolve, reject) => {
+      response.body.pipe(fileStream);
+      response.body.on("error", reject);
+      fileStream.on("finish", resolve);
+    });
+
     console.log(chalk.blue("Extracting template..."));
-    await response.body.pipe(unzipper.Extract({ path: projectPath })).promise();
+    const zip = new AdmZip(tempZipPath);
+    zip.extractAllTo(projectPath, true); // Extract all contents to projectPath
 
-    // After unzipping, the contents might be inside a subdirectory
-    const extractedDir = path.join(projectPath, "angular-template-main");
-    if (fs.existsSync(extractedDir)) {
-      fs.readdirSync(extractedDir).forEach((file) => {
-        fs.renameSync(
-          path.join(extractedDir, file),
-          path.join(projectPath, file)
-        );
-      });
+    // Delete the temporary ZIP file
+    fs.unlinkSync(tempZipPath);
 
-      fs.rmSync(extractedDir, { recursive: true, force: true });
-    }
-
-    // Install npm dependencies
     console.log(chalk.blue("Installing npm dependencies..."));
     execSync("npm install", { stdio: "inherit", cwd: projectPath });
 
-    // Success message with colors
     console.log(
       chalk.green(
         `\nNew Angular project "${projectName}" created successfully!`
       )
     );
-
-    // Output a colored message to tell the user to change into the new directory
     console.log(chalk.yellow(`\nTo get started:`));
     console.log(chalk.cyan(`-->  cd ${projectName}  <--`));
     console.log(chalk.cyan(`-->  npm start  <--\n`));
