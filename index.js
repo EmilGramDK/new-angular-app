@@ -40,6 +40,10 @@ program
       os.tmpdir(),
       `angular-template-${Date.now()}.zip`
     );
+    const tempExtractPath = path.join(
+      os.tmpdir(),
+      `angular-template-${Date.now()}`
+    );
 
     console.log(chalk.blue(`Downloading template from ${GITHUB_ZIP_URL}...`));
     const response = await fetch(GITHUB_ZIP_URL);
@@ -58,10 +62,38 @@ program
 
     console.log(chalk.blue("Extracting template..."));
     const zip = new AdmZip(tempZipPath);
-    zip.extractAllTo(projectPath, true); // Extract all contents to projectPath
+    zip.extractAllTo(tempExtractPath, true); // Extract all contents to tempExtractPath
 
-    // Delete the temporary ZIP file
-    fs.unlinkSync(tempZipPath);
+    // Move the contents from "angular-template-main" to projectPath
+    const extractedFolder = fs
+      .readdirSync(tempExtractPath)
+      .find((folder) => folder.includes("angular-template"));
+
+    const extractedPath = path.join(tempExtractPath, extractedFolder);
+
+    function moveRecursiveSync(src, dest) {
+      const entries = fs.readdirSync(src, { withFileTypes: true });
+
+      entries.forEach((entry) => {
+        const srcPath = path.join(src, entry.name);
+        const destPath = path.join(dest, entry.name);
+
+        if (entry.isDirectory()) {
+          if (!fs.existsSync(destPath)) {
+            fs.mkdirSync(destPath);
+          }
+          moveRecursiveSync(srcPath, destPath);
+        } else {
+          fs.renameSync(srcPath, destPath);
+        }
+      });
+    }
+
+    moveRecursiveSync(extractedPath, projectPath);
+
+    // Clean up the temporary files and folders
+    fs.rmSync(tempZipPath, { recursive: true, force: true });
+    fs.rmSync(tempExtractPath, { recursive: true, force: true });
 
     console.log(chalk.blue("Installing npm dependencies..."));
     execSync("npm install", { stdio: "inherit", cwd: projectPath });
